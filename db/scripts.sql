@@ -7,13 +7,14 @@ CREATE TABLE IF NOT EXISTS usuarios (
     codigo VARCHAR(20) UNIQUE,
     facultad VARCHAR(100),
     carrera VARCHAR(100),
+    mean_embedding BLOB,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS embeddings (
 	idEmb INT AUTO_INCREMENT PRIMARY KEY,
     idUser INT NOT  NULL,
-    content BLOB NOT NULL,
+    embedding BLOB NOT NULL,
     FOREIGN KEY (idUser) REFERENCES usuarios(idUser)
 );
 
