@@ -33,14 +33,3 @@ def crear_embedding(img: np.ndarray) -> np.ndarray:
 
     
     return faces[0].embedding
-
-#import numpy as np
-
-#def generar_embedding(imagen=None):
-    """
-    Simula la generación de un embedding facial de 512 dimensiones.
-    Esta función reemplaza temporalmente a InsightFace.
-    """
-    #print("⚠️ Generando embedding simulado (modo desarrollo)")
-    #embedding = np.random.rand(512)
-    #return embedding

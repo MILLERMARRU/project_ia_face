@@ -6,6 +6,13 @@ from app.verificacion_faiss import construir_indice, buscar_usuario_por_embeddin
 def verificar_usuario():
     st.subheader("🔍 Verificación de Identidad")
 
+    # Opción para elegir el modo de verificación
+    modo = st.radio(
+        "Selecciona el modo de verificación:",
+        ("Mayor velocidad", "Mayor precisión")
+    )
+    modo_faiss = "velocidad" if modo == "Mayor velocidad" else "presicion"
+
     if st.button("📸 Capturar rostro para verificar"):
         cap = cv2.VideoCapture(0)
         st.info("Presiona 's' en la ventana emergente para capturar rostro")
@@ -24,7 +31,7 @@ def verificar_usuario():
             embedding = crear_embedding(frame)
 
             # Construir el índice de FAISS
-            construir_indice()
+            construir_indice(modo=modo_faiss)
 
             usuario, similitud = buscar_usuario_por_embedding(embedding)
 

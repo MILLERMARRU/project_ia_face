@@ -1,6 +1,6 @@
 import faiss
 import numpy as np
-from db.model_user import obtener_usuarios_con_embedding_blob  # función nueva y segura
+from db.model_user import obtener_embeddings
 
 # Normalizar para similitud coseno
 def normalizar(vec):
@@ -11,16 +11,24 @@ def normalizar(vec):
 index = faiss.IndexFlatIP(512)  # IP = Inner Product → simula similitud coseno con vectores normalizados
 usuarios_indexados = []
 
-def construir_indice():
+def construir_indice(modo='velocidad'):
+    """
+    Modos disponibles:
+    - 'velocidad': indexa embeddings promediados.
+    - 'presicion': indexa embeddings individuales.
+    """
     global index, usuarios_indexados
     index.reset()
     usuarios_indexados.clear()
 
-    usuarios = obtener_usuarios_con_embedding_blob()  # nueva función robusta
-    print(f"Usuarios obtenidos: {len(usuarios)}") 
+    usuarios = obtener_embeddings(tipo=modo)
+
     for usuario in usuarios:
-        emb = normalizar(usuario['embedding'].astype(np.float32))
-        index.add(emb.reshape(1, -1))  # FAISS espera (n, d)
+        if modo == 'velocidad':
+            emb = normalizar(usuario['mean_embedding'].astype(np.float32))
+        else:
+            emb = normalizar(usuario['embedding'].astype(np.float32)) #ojito que toma muchos embeddings
+        index.add(emb.reshape(1, -1))
         usuarios_indexados.append(usuario)
 
 def buscar_usuario_por_embedding(embedding_consulta: np.ndarray, umbral: float = 0.4):

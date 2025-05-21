@@ -3,83 +3,123 @@ import json
 import numpy as np
 import pymysql
 
-def guardar_usuario(nombre, codigo, facultad, carrera, embedding_np):
+
+def guardar_embedding(embedding, id_usuario, cursor=None):
     """
-    Guarda un usuario con su embedding facial (como BLOB).
+    Guarda un embedding facial (como BLOB) asociado a un usuario en la tabla embeddings.
+    Si se pasa un cursor, lo usa; si no, crea su propia conexión.
     """
-    embedding_bin = embedding_np.astype(np.float32).tobytes()
-    
+    embedding_bin = embedding.astype(np.float32).tobytes()
+    if cursor is not None:
+        sql = """
+        INSERT INTO embeddings (idUser, embedding)
+        VALUES (%s, %s)
+        """
+        cursor.execute(sql, (id_usuario, embedding_bin))
+    else:
+        conexion = obtener_conexion()
+        try:
+            with conexion.cursor() as cursor_local:
+                sql = """
+                INSERT INTO embeddings (idUser, embedding)
+                VALUES (%s, %s)
+                """
+                cursor_local.execute(sql, (id_usuario, embedding_bin))
+            conexion.commit()
+        finally:
+            conexion.close()
+
+
+def guardar_usuario(nombre, codigo, facultad, carrera, embeddings):
+    """
+    Guarda un usuario con su embedding facial promediado (como BLOB)
+    y almacena todos los embeddings individuales en la tabla embeddings.
+    """
+    mean_embedding = np.mean(embeddings, axis=0).astype(np.float32)
+    mean_embedding_bin = mean_embedding.tobytes()
+
+    print("Impresión de datos: ")
+    print(f"Nombre: {nombre}")
+    print(f"Código: {codigo}")
+    print(f"Facultad: {facultad}")
+    print(f"Carrera: {carrera}")
+    print(f"Embedding promedio: {mean_embedding}")
+
     conexion = obtener_conexion()
     try:
         with conexion.cursor() as cursor:
+            # Inserta el usuario con el embedding promedio
             sql = """
-            INSERT INTO usuarios (nombre, codigo, facultad, carrera, embedding)
+            INSERT INTO usuarios (nombre, codigo, facultad, carrera, mean_embedding)
             VALUES (%s, %s, %s, %s, %s)
             """
-            cursor.execute(sql, (nombre, codigo, facultad, carrera, embedding_bin))
+            cursor.execute(sql, (nombre, codigo, facultad, carrera, mean_embedding_bin))
+            id_usuario = cursor.lastrowid
+
+            for emb in embeddings:
+                # Guarda cada embedding individual usando el mismo cursor
+                guardar_embedding(emb, id_usuario, cursor=cursor)
         conexion.commit()
     finally:
         conexion.close()
 
 
-
-def obtener_usuarios_con_embedding_blob():
+def obtener_embeddings(tipo='velocidad'):
     """
-    Retorna usuarios con embedding BLOB válido de 512 valores float32.
+    Obtiene embeddings de la base de datos.
+    tipo:
+        - 'presicion': retorna todos los embeddings individuales con datos de usuario.
+        - 'velocidad': retorna solo los usuarios con su embedding promedio.
     """
     conexion = obtener_conexion()
     try:
         with conexion.cursor(pymysql.cursors.DictCursor) as cursor:
-            cursor.execute("SELECT id, nombre, codigo, facultad, carrera, embedding FROM usuarios")
-            resultados = cursor.fetchall()
+            if tipo == 'presicion':
+                cursor.execute("""
+                    SELECT e.idEmb, e.embedding, u.idUser, u.nombre, u.codigo, u.facultad, u.carrera
+                    FROM embeddings e
+                    INNER JOIN usuarios u ON e.idUser = u.idUser
+                """)
+                resultados = cursor.fetchall()
+                for resultado in resultados:
+                    emb_raw = resultado['embedding']
+                    if isinstance(emb_raw, (bytes, bytearray)) and len(emb_raw) == 2048:
+                        try:
+                            emb = np.frombuffer(emb_raw, dtype=np.float32)
+                            if emb.shape == (512,):
+                                resultado['embedding'] = emb
+                            else:
+                                print(f"⚠️ Embedding tamaño inválido: {resultado['idUser']} ({emb.shape})")
+                        except Exception as e:
+                            print(f"❌ Error al procesar embedding de {resultado['idUser']}: {e}")
+                    else:
+                        print(f"❌ Embedding inválido para usuario: {resultado.get('idUser', '[Sin ID]')}")
+                return resultados
 
-            usuarios = []
-            for usuario in resultados:
-                emb_raw = usuario['embedding']
+            elif tipo == 'velocidad':
+                cursor.execute("""
+                    SELECT idUser, nombre, codigo, facultad, carrera, mean_embedding
+                    FROM usuarios
+                """)
+                resultados = cursor.fetchall()
+                usuarios = []
+                for usuario in resultados:
+                    emb_raw = usuario['mean_embedding']
+                    if isinstance(emb_raw, (bytes, bytearray)) and len(emb_raw) == 2048:
+                        try:
+                            emb = np.frombuffer(emb_raw, dtype=np.float32)
+                            if emb.shape == (512,):
+                                usuario['mean_embedding'] = emb
+                                usuarios.append(usuario)
+                            else:
+                                print(f"⚠️ Embedding tamaño inválido: {usuario['nombre']} ({emb.shape})")
+                        except Exception as e:
+                            print(f"❌ Error al procesar embedding de {usuario['nombre']}: {e}")
+                    else:
+                        print(f"❌ Embedding inválido para usuario: {usuario.get('nombre', '[Sin Nombre]')}")
+                return usuarios
 
-                if isinstance(emb_raw, (bytes, bytearray)) and len(emb_raw) == 2048:
-                    try:
-                        emb = np.frombuffer(emb_raw, dtype=np.float32)
-                        if emb.shape == (512,):
-                            usuario['embedding'] = emb
-                            usuarios.append(usuario)
-                        else:
-                            print(f"⚠️ Embedding tamaño inválido: {usuario['nombre']} ({emb.shape})")
-                    except Exception as e:
-                        print(f"❌ Error al procesar embedding de {usuario['nombre']}: {e}")
-                else:
-                    print(f"❌ Embedding inválido para usuario: {usuario.get('nombre', '[Sin Nombre]')}")
-
-            return usuarios
-    finally:
-        conexion.close()
-
-
-
-
-
-
-def buscar_usuario_por_codigo(codigo):
-    """
-    Busca un usuario por su código y devuelve su info + embedding.
-    """
-    conexion = obtener_conexion()
-    try:
-        with conexion.cursor() as cursor:
-            cursor.execute("SELECT * FROM usuarios WHERE codigo = %s", (codigo,))
-            fila = cursor.fetchone()
-            if not fila:
-                return None
-
-            columnas = [desc[0] for desc in cursor.description]
-            usuario = dict(zip(columnas, fila))
-
-            emb_raw = usuario['embedding']
-            if isinstance(emb_raw, str):
-                usuario['embedding'] = np.array(json.loads(emb_raw), dtype=np.float32)
             else:
-                usuario['embedding'] = np.frombuffer(emb_raw, dtype=np.float32)
-
-            return usuario
+                raise ValueError("Tipo debe ser 'individual' o 'promedio'")
     finally:
         conexion.close()

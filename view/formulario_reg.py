@@ -38,12 +38,21 @@ def mostrar_formulario():
             registrar = st.form_submit_button("✅ Registrar estudiante")
 
         if capturar:
-            imagen = capturar_rostro()
-            if imagen is not None:
-                embedding = crear_embedding(imagen)
-                if embedding is not None:
-                    st.session_state.embedding = embedding
-                    st.session_state.imagen = imagen
+            imagenes = capturar_rostro()
+            if imagenes is not None:
+                embeddings = []
+
+                for img in imagenes:
+                    # Procesar cada imagen capturada
+                    try:
+                        embedding = crear_embedding(img)
+                        embeddings.append(embedding)
+                    except ValueError as e:
+                        st.error(str(e))
+                        break
+
+                if embeddings is not None:
+                    st.session_state.embeddings = embeddings #almacenar todos los embeddings
                     st.success("✅ Rostro capturado y embedding generado.")
                 else:
                     st.error("❌ No se detectó rostro.")
@@ -51,15 +60,14 @@ def mostrar_formulario():
                 st.warning("⚠️ No se capturó imagen.")
 
         if registrar:
-            if st.session_state.embedding is None:
+            if st.session_state.embeddings is None:
                 st.error("❌ Primero debes capturar el rostro.")
             elif not (nombre and codigo):
                 st.warning("⚠️ Completa todos los campos.")
             else:
                 try:
-                    guardar_usuario(nombre, codigo, facultad, carrera, st.session_state.embedding)
+                    guardar_usuario(nombre, codigo, facultad, carrera, st.session_state.embeddings)
                     st.success(f"✅ Usuario {nombre} registrado correctamente.")
-                    st.session_state.embedding = None
-                    st.session_state.imagen = None
+                    st.session_state.embeddings = None
                 except pymysql.err.IntegrityError:
                     st.error(f"❌ El código '{codigo}' ya está registrado. Usa uno diferente.")
