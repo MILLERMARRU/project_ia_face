@@ -38,13 +38,6 @@ def guardar_usuario(nombre, codigo, facultad, carrera, embeddings):
     mean_embedding = np.mean(embeddings, axis=0).astype(np.float32)
     mean_embedding_bin = mean_embedding.tobytes()
 
-    print("Impresión de datos: ")
-    print(f"Nombre: {nombre}")
-    print(f"Código: {codigo}")
-    print(f"Facultad: {facultad}")
-    print(f"Carrera: {carrera}")
-    print(f"Embedding promedio: {mean_embedding}")
-
     conexion = obtener_conexion()
     try:
         with conexion.cursor() as cursor:
@@ -83,7 +76,7 @@ def obtener_embeddings(tipo='velocidad'):
                 resultados = cursor.fetchall()
                 for resultado in resultados:
                     emb_raw = resultado['embedding']
-                    if isinstance(emb_raw, (bytes, bytearray)) and len(emb_raw) == 2048:
+                    if isinstance(emb_raw, (bytes, bytearray)) and len(emb_raw) == 2048: #comprobamos la existencia de 4 embeddings de 512
                         try:
                             emb = np.frombuffer(emb_raw, dtype=np.float32)
                             if emb.shape == (512,):

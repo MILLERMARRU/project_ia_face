@@ -31,7 +31,8 @@ def construir_indice(modo='velocidad'):
         index.add(emb.reshape(1, -1))
         usuarios_indexados.append(usuario)
 
-def buscar_usuario_por_embedding(embedding_consulta: np.ndarray, umbral: float = 0.4):
+
+def buscar_usuario_por_embedding(embedding_consulta: np.ndarray, umbral: float = 0.5):
     if index.ntotal == 0:
         raise RuntimeError("El índice FAISS está vacío. Ejecuta construir_indice() primero.")
 
