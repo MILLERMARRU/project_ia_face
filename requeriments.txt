@@ -1,9 +1,10 @@
 
 py -3.10 -m venv faceenv 
 faceenv\Scripts\activate 
+pip install paddleocr
 pip install insightface[all] onnxruntime-gpu opencv-python numpy
 pip install streamlit
-pip install faiss-cpu
+pip install faiss-cpu==1.8.0 #<--- esta versión no tiene problema de compatibilidad con paddleOCR
 pip install PyMySQL
 
 
