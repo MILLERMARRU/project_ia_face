@@ -1,0 +1,21 @@
+
+py -3.10 -m venv faceenv 
+faceenv\Scripts\activate 
+pip install insightface[all] onnxruntime-gpu opencv-python numpy
+pip install streamlit
+pip install faiss-cpu
+pip install PyMySQL
+pip install streamlit-webrtc
+pip install av
+pip install streamlit-option-menu
+
+bd 
+CREATE TABLE IF NOT EXISTS usuarios (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100),
+    codigo VARCHAR(20) UNIQUE,
+    facultad VARCHAR(100),
+    carrera VARCHAR(100),
+    embedding BLOB NOT NULL,
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMPr
+);
