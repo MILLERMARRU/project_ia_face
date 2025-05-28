@@ -1,0 +1,13 @@
+
+py -3.10 -m venv faceenv 
+faceenv\Scripts\activate 
+pip install insightface[all] onnxruntime-gpu opencv-python numpy
+pip install streamlit
+pip install faiss-cpu
+pip install PyMySQL
+
+
+
+Para soporte de CUDA en torch y easyOCR
+
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
