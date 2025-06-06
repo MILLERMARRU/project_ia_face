@@ -1,4 +1,4 @@
-from db.conexion import obtener_conexion
+from conexion import obtener_conexion
 import json
 import numpy as np
 import pymysql
@@ -61,19 +61,23 @@ def obtener_embeddings(tipo='velocidad'):
     """
     Obtiene embeddings de la base de datos.
     tipo:
-        - 'presicion': retorna todos los embeddings individuales con datos de usuario.
+        - 'precision': retorna todos los embeddings individuales con datos de usuario.
         - 'velocidad': retorna solo los usuarios con su embedding promedio.
+
+    Resultados y usuarios son prácticamente lo mismo en ambos enfoques. La diferencia está en que precisión se enfoca en los embeddings individuales,
+    mientras que velocidad se enfoca en los embeddings promediados de los usuarios. Pero ambos contienen la información del usuario.
     """
     conexion = obtener_conexion()
     try:
         with conexion.cursor(pymysql.cursors.DictCursor) as cursor:
-            if tipo == 'presicion':
+            if tipo == 'precision':
                 cursor.execute("""
                     SELECT e.idEmb, e.embedding, u.idUser, u.nombre, u.codigo, u.facultad, u.carrera
                     FROM embeddings e
                     INNER JOIN usuarios u ON e.idUser = u.idUser
                 """)
                 resultados = cursor.fetchall()
+                embeddings = []
                 for resultado in resultados:
                     emb_raw = resultado['embedding']
                     if isinstance(emb_raw, (bytes, bytearray)) and len(emb_raw) == 2048: #comprobamos la existencia de 4 embeddings de 512
@@ -81,13 +85,14 @@ def obtener_embeddings(tipo='velocidad'):
                             emb = np.frombuffer(emb_raw, dtype=np.float32)
                             if emb.shape == (512,):
                                 resultado['embedding'] = emb
+                                embeddings.append(resultado)
                             else:
                                 print(f"⚠️ Embedding tamaño inválido: {resultado['idUser']} ({emb.shape})")
                         except Exception as e:
                             print(f"❌ Error al procesar embedding de {resultado['idUser']}: {e}")
                     else:
                         print(f"❌ Embedding inválido para usuario: {resultado.get('idUser', '[Sin ID]')}")
-                return resultados
+                return embeddings
 
             elif tipo == 'velocidad':
                 cursor.execute("""
@@ -95,7 +100,7 @@ def obtener_embeddings(tipo='velocidad'):
                     FROM usuarios
                 """)
                 resultados = cursor.fetchall()
-                usuarios = []
+                embeddings = []
                 for usuario in resultados:
                     emb_raw = usuario['mean_embedding']
                     if isinstance(emb_raw, (bytes, bytearray)) and len(emb_raw) == 2048:
@@ -103,14 +108,14 @@ def obtener_embeddings(tipo='velocidad'):
                             emb = np.frombuffer(emb_raw, dtype=np.float32)
                             if emb.shape == (512,):
                                 usuario['mean_embedding'] = emb
-                                usuarios.append(usuario)
+                                embeddings.append(usuario)
                             else:
                                 print(f"⚠️ Embedding tamaño inválido: {usuario['nombre']} ({emb.shape})")
                         except Exception as e:
                             print(f"❌ Error al procesar embedding de {usuario['nombre']}: {e}")
                     else:
                         print(f"❌ Embedding inválido para usuario: {usuario.get('nombre', '[Sin Nombre]')}")
-                return usuarios
+                return embeddings
 
             else:
                 raise ValueError("Tipo debe ser 'individual' o 'promedio'")

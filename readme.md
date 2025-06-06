@@ -1,0 +1,1 @@
+### Fusión manual de ramas sam_branch y release 1.0.0
