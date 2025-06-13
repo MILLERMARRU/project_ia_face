@@ -1,73 +1,113 @@
 import streamlit as st
+import numpy as np
 import pymysql
-from app.camara import capturar_rostro
+import cv2
+
 from app.embedings import crear_embedding
 from db.model_user import guardar_usuario
 
+NUM_CAPTURAS = 4
+MENSAJES = [
+    "Intenta una expresión facial diferente 😊",
+    "Cambia ligeramente el ángulo de tu rostro ↗️",
+    "Prueba con otra iluminación 💡",
+    "Aléjate o acércate un poco 📏"
+]
+
+def init_session():
+    for k, v in {
+        "img_list": [],
+        "emb_list": [],
+    }.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+def procesar_camara(uploaded_file):
+    """Convierte el archivo de st.camera_input a np.ndarray BGR."""
+    img_bytes = uploaded_file.getvalue()
+    frame = cv2.imdecode(
+        np.frombuffer(img_bytes, dtype=np.uint8), 
+        cv2.IMREAD_COLOR
+    )
+    return frame
+
 def mostrar_formulario():
+    init_session()
+
     st.markdown("---")
-    st.subheader("📋 Formulario de Registro")
+    st.markdown('<h3><i class="bi bi-person-fill"></i> Registro de Estudiante</h3>', unsafe_allow_html=True)
 
-    if "embedding" not in st.session_state:
-        st.session_state.embedding = None
-    if "imagen" not in st.session_state:
-        st.session_state.imagen = None
-
-    # Selección dinámica fuera del formulario
+    # --------- Campos de selección (fuera del form) ----------
     facultad = st.selectbox("Facultad", ["Ingeniería", "Ciencias Sociales", "Educación"])
-
-    if facultad == "Ingeniería":
-        carreras = ["Chistemas", "Civil", "Industrial"]
-    elif facultad == "Ciencias Sociales":
-        carreras = ["Derecho", "Psicología", "Comunicación"]
-    elif facultad == "Educación":
-        carreras = ["Inicial", "Primaria", "Secundaria"]
-    else:
-        carreras = []
-
+    carreras = {
+        "Ingeniería": ["Sistemas", "Civil", "Industrial"],
+        "Ciencias Sociales": ["Derecho", "Psicología", "Comunicación"],
+        "Educación": ["Inicial", "Primaria", "Secundaria"],
+    }[facultad]
     carrera = st.selectbox("Carrera", carreras)
 
-    with st.form("form_registro"):
-        nombre = st.text_input("Nombre completo")
+    # --------- Formulario principal ----------
+    with st.form("form_registro", clear_on_submit=False):
+        nombre = st.text_input("Nombre completo", placeholder="Ej.: Andrea Rojas")
         codigo = st.text_input("Código estudiantil")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            capturar = st.form_submit_button("📸 Capturar rostro")
-        with col2:
-            registrar = st.form_submit_button("✅ Registrar estudiante")
+        # --- Zona de captura múltiple ---
+        st.write(f"Capturas realizadas: **{len(st.session_state.img_list)}/{NUM_CAPTURAS}**")
+        cam_file = st.camera_input("📸 Toma una foto")
 
+        col1, col2, col3 = st.columns(3)
+        capturar = col1.form_submit_button("➕ Guardar captura")
+        borrar    = col2.form_submit_button("♻️ Reiniciar capturas")
+        registrar = col3.form_submit_button("✅ Registrar estudiante")
+
+        # --- Acciones ---
         if capturar:
-            imagenes = capturar_rostro()
-            if imagenes is not None:
-                embeddings = []
-
-                for img in imagenes:
-                    # Procesar cada imagen capturada
-                    try:
-                        embedding = crear_embedding(img)
-                        embeddings.append(embedding)
-                    except ValueError as e:
-                        st.error(str(e))
-                        break
-
-                if embeddings is not None:
-                    st.session_state.embeddings = embeddings #almacenar todos los embeddings
-                    st.success("✅ Rostro capturado y embedding generado.")
-                else:
-                    st.error("❌ No se detectó rostro.")
+            if cam_file is None:
+                st.warning("Primero toma una foto.")
+            elif len(st.session_state.img_list) >= NUM_CAPTURAS:
+                st.info("Ya alcanzaste el número máximo de capturas.")
             else:
-                st.warning("⚠️ No se capturó imagen.")
+                frame = procesar_camara(cam_file)
+                with st.spinner("Procesando..."):
+                    emb = crear_embedding(frame)
 
+                if emb is None:
+                    st.error("❌ No se detectó rostro. Vuelve a intentar.")
+                else:
+                    st.session_state.img_list.append(frame)
+                    st.session_state.emb_list.append(emb)
+                    idx = len(st.session_state.img_list)
+                    st.success(f"Captura {idx} almacenada. {MENSAJES[(idx-1)%len(MENSAJES)]}")
+
+        if borrar:
+            st.session_state.img_list.clear()
+            st.session_state.emb_list.clear()
+            st.info("Capturas reiniciadas.")
+
+        # Mostrar miniaturas
+        if st.session_state.img_list:
+            st.image(
+                st.session_state.img_list, 
+                width=120, 
+                caption=[f"Captura {i+1}" for i in range(len(st.session_state.img_list))]
+            )
+
+        # --- Registro final ---
         if registrar:
-            if st.session_state.embeddings is None:
-                st.error("❌ Primero debes capturar el rostro.")
+            # Validaciones
+            if len(st.session_state.img_list) < NUM_CAPTURAS:
+                st.error(f"Faltan capturas. Necesitas {NUM_CAPTURAS}.")
             elif not (nombre and codigo):
-                st.warning("⚠️ Completa todos los campos.")
+                st.warning("Completa nombre y código.")
             else:
                 try:
-                    guardar_usuario(nombre, codigo, facultad, carrera, st.session_state.embeddings)
-                    st.success(f"✅ Usuario {nombre} registrado correctamente.")
-                    st.session_state.embeddings = None
+                    # ➜ Guarda la **lista** de embeddings
+                    guardar_usuario(
+                        nombre, codigo, facultad, carrera, st.session_state.emb_list
+                    )
+                    st.success(f"Usuario «{nombre}» registrado correctamente ✅")
+                    # Limpieza de sesión
+                    st.session_state.img_list.clear()
+                    st.session_state.emb_list.clear()
                 except pymysql.err.IntegrityError:
-                    st.error(f"❌ El código '{codigo}' ya está registrado. Usa uno diferente.")
+                    st.error(f"El código «{codigo}» ya existe. Usa otro.")

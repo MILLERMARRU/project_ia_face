@@ -1,49 +1,67 @@
 import streamlit as st
-import cv2
+import cv2, numpy as np
 from app.embedings import crear_embedding
 from app.verificacion_faiss import construir_indice, buscar_usuario_por_embedding
 
 def verificar_usuario():
     st.subheader("🔍 Verificación de Identidad")
 
-    # Opción para elegir el modo de verificación
-    modo = st.radio(
+    # --- Ajustes de FAISS ---
+    modo_ui = st.radio(
         "Selecciona el modo de verificación:",
-        ("Mayor velocidad", "Mayor precisión")
+        ("Mayor velocidad", "Mayor precisión"),
+        horizontal=True
     )
-    modo_faiss = "velocidad" if modo == "Mayor velocidad" else "presicion"
+    modo_faiss = "speed" if modo_ui == "Mayor velocidad" else "accuracy"
+    st.info(
+        "El modo de **Mayor velocidad** usa embeddings promediados, mientras que **Mayor precisión** usa todos los embeddings individuales."
+    )
 
-    if st.button("📸 Capturar rostro para verificar"):
-        cap = cv2.VideoCapture(0)
-        st.info("Presiona 's' en la ventana emergente para capturar rostro")
+    # --- Ciclo de captura y verificación ---
+    while True:
+        img_file = st.camera_input("📸 Captura tu rostro y pulsa «Usar foto»")
 
-        while True:
-            ret, frame = cap.read()
-            cv2.imshow("Presiona 's' para capturar", frame)
-            if cv2.waitKey(1) & 0xFF == ord('s'):
-                break
+        if img_file is None:
+            st.info("Cuando estés listo toma la foto.")
+            st.stop()
 
-        cap.release()
-        cv2.destroyAllWindows()
+        # Procesar la imagen subida en OpenCV BGR
+        frame = cv2.imdecode(
+            np.frombuffer(img_file.getvalue(), dtype=np.uint8), 
+            cv2.IMREAD_COLOR
+        )
 
-        try:
-            st.success("✅ Imagen capturada. Generando embedding...")
-            embedding = crear_embedding(frame)
+        with st.spinner("Generando embedding y consultando el índice…"):
+            emb = crear_embedding(frame)
 
-            # Construir el índice de FAISS
+            if emb is None:
+                st.warning("❌ No se detectó ningún rostro. Prueba de nuevo.")
+                if not st.button("Volver a intentar"):
+                    st.stop()
+                else:
+                    continue  # vuelve al while y solicita otra foto
+
+            # Construir o cargar índice según el modo
             construir_indice(modo=modo_faiss)
+            usuario, similitud = buscar_usuario_por_embedding(emb)
 
-            usuario, similitud = buscar_usuario_por_embedding(embedding)
+        # --- Resultado ---
+        if usuario:
+            st.success(f"🎉 Usuario identificado: {usuario['nombre']}")
+            st.markdown(
+                f"""
+                - **Código:** `{usuario['codigo']}`  
+                - **Facultad:** {usuario['facultad']}  
+                - **Carrera:** {usuario['carrera']}  
+                - **Similitud:** `{similitud:.4f}`
+                """
+            )
+        else:
+            st.error("❌ Usuario no identificado.")
+            st.info(f"Similitud máxima encontrada: {similitud:.4f}")
 
-            if usuario:
-                st.success(f"🎉 Usuario identificado: {usuario['nombre']}")
-                st.write(f"Código: `{usuario['codigo']}`")
-                st.write(f"Facultad: {usuario['facultad']}")
-                st.write(f"Carrera: {usuario['carrera']}")
-                st.write(f"🔎 Similitud: `{similitud:.4f}`")
-            else:
-                st.error("❌ Usuario no identificado. Prueba nuevamente.")
-                st.info(f"Similitud máxima encontrada: {similitud:.4f}")
-
-        except Exception as e:
-            st.error(f"❌ Error al verificar rostro: {str(e)}")
+        # ¿Repetir?
+        if st.button("Probar con otra foto"):
+            continue   # vuelve al while externo
+        break  # sale si no se pulsa el botón
+    1

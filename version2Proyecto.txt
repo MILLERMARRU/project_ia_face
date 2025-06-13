@@ -1,1 +1,24 @@
 Esta rama fucionará la rama sam_branch con la rama realease 1.0.0
+tomamos como copia la primera rama y adaptamos lo implementado en release/1.00
+
+
+
+
+Adaptaremos las vistas disponibles en realese
+    /asistencia_tiempo_real.py
+        Este script no existía en esta rama, por lo que fue traida exactamente igual del releasse 1.0.0, y mejorada posteriomente haciendo uso de Chatgpt. Quienentre otras cosas:
+         *añadió soporte para caché en memoria para los índices construidos con faiss evitando *así el congelamiento de video, añadió un FRAME_STRIDE, que permitió saltar algunos *frames sin perder precisión pero reduciendo significativamente el lag. Añadiendo *persistencia de indice tras actualizaciones, evitando la construcción completa y duplicados.
+         * Por supuesto también se añadió la opción de escoger entre precisión y velocidad al igual que la vista de detección de usuarios
+    /vista.py <---- se copió al script tal y como estaba en el recurso.
+    /formulario_reg.py 
+        Se tuvo que adaptar el script para permitir las características de captura múltiple, GPT ayudó en esta tarea y en resumen lo que hizo fue aprovechar el uso de la cámara nativa de streamlit con las características originales de este proyecto. Acopló toda la implementación integrada del realese 1.0.0 con opciones de captura múltiple y mensajes que puedan ser mostradas durante las capturas. Entre otras coass también se añadieron:
+        * miniaturas de las fotos capturadas con opción a realizar la captura nuevamente
+        * un contador de l número de fotografías tomadas
+        * una mejor apariencia general del formulario
+    
+    /verificacion_usuario.py
+        Al igual que con el registro o formulario original, se cambió el uso de opencv por la cámara interna de la librería streamlit, lo que mejora la interacción del usuario con el aplicativo, también se hicieron muchas otras mejoras con el uso de CHATGPT.
+
+
+
+El archivo embeddings_multiples ubicado en la carpeta app no sirve para el resgitros, sino para el reconocimiento empleado en la detección realtime

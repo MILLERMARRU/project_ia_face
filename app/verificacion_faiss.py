@@ -11,11 +11,11 @@ def normalizar(vec):
 index = faiss.IndexFlatIP(512)  # IP = Inner Product → simula similitud coseno con vectores normalizados
 usuarios_indexados = []
 
-def construir_indice(modo='velocidad'):
+def construir_indice(modo='speed'):
     """
     Modos disponibles:
-    - 'velocidad': indexa embeddings promediados.
-    - 'presicion': indexa embeddings individuales.
+    - 'speed': indexa embeddings promediados.
+    - 'accuracy': indexa embeddings individuales.
     """
     global index, usuarios_indexados
     index.reset()
@@ -24,7 +24,7 @@ def construir_indice(modo='velocidad'):
     usuarios = obtener_embeddings(tipo=modo)
 
     for usuario in usuarios:
-        if modo == 'velocidad':
+        if modo == 'speed':
             emb = normalizar(usuario['mean_embedding'].astype(np.float32))
         else:
             emb = normalizar(usuario['embedding'].astype(np.float32)) #ojito que toma muchos embeddings

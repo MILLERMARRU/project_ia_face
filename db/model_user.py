@@ -1,4 +1,4 @@
-from conexion import obtener_conexion
+from db.conexion import obtener_conexion
 import json
 import numpy as np
 import pymysql
@@ -57,12 +57,12 @@ def guardar_usuario(nombre, codigo, facultad, carrera, embeddings):
         conexion.close()
 
 
-def obtener_embeddings(tipo='velocidad'):
+def obtener_embeddings(tipo='speed'):
     """
     Obtiene embeddings de la base de datos.
     tipo:
-        - 'precision': retorna todos los embeddings individuales con datos de usuario.
-        - 'velocidad': retorna solo los usuarios con su embedding promedio.
+        - 'accuracy': retorna todos los embeddings individuales con datos de usuario.
+        - 'speed': retorna solo los usuarios con su embedding promedio.
 
     Resultados y usuarios son prácticamente lo mismo en ambos enfoques. La diferencia está en que precisión se enfoca en los embeddings individuales,
     mientras que velocidad se enfoca en los embeddings promediados de los usuarios. Pero ambos contienen la información del usuario.
@@ -70,7 +70,8 @@ def obtener_embeddings(tipo='velocidad'):
     conexion = obtener_conexion()
     try:
         with conexion.cursor(pymysql.cursors.DictCursor) as cursor:
-            if tipo == 'precision':
+            if tipo == 'accuracy':
+                # Obtiene todos los embeddings individuales con datos de usuario
                 cursor.execute("""
                     SELECT e.idEmb, e.embedding, u.idUser, u.nombre, u.codigo, u.facultad, u.carrera
                     FROM embeddings e
@@ -94,7 +95,8 @@ def obtener_embeddings(tipo='velocidad'):
                         print(f"❌ Embedding inválido para usuario: {resultado.get('idUser', '[Sin ID]')}")
                 return embeddings
 
-            elif tipo == 'velocidad':
+            elif tipo == 'speed':
+                # Obtiene los usuarios con su embedding promedio
                 cursor.execute("""
                     SELECT idUser, nombre, codigo, facultad, carrera, mean_embedding
                     FROM usuarios
@@ -118,6 +120,6 @@ def obtener_embeddings(tipo='velocidad'):
                 return embeddings
 
             else:
-                raise ValueError("Tipo debe ser 'individual' o 'promedio'")
+                raise ValueError("Tipo debe ser 'speed' o 'accuracy'")
     finally:
         conexion.close()
