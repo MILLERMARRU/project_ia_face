@@ -17,51 +17,41 @@ def verificar_usuario():
         "El modo de **Mayor velocidad** usa embeddings promediados, mientras que **Mayor precisión** usa todos los embeddings individuales."
     )
 
-    # --- Ciclo de captura y verificación ---
-    while True:
-        img_file = st.camera_input("📸 Captura tu rostro y pulsa «Usar foto»")
+    # --- Captura de imagen ---
+    img_file = st.camera_input("📸 Captura tu rostro y pulsa «Usar foto»", key="unique_camera_input")
 
-        if img_file is None:
-            st.info("Cuando estés listo toma la foto.")
+    if img_file is None:
+        st.info("Cuando estés listo toma la foto.")
+        st.stop()
+
+    # Procesar la imagen subida en OpenCV BGR
+    frame = cv2.imdecode(
+        np.frombuffer(img_file.getvalue(), dtype=np.uint8), 
+        cv2.IMREAD_COLOR
+    )
+
+    with st.spinner("Generando embedding y consultando el índice…"):
+        emb = crear_embedding(frame)
+
+        if emb is None:
+            st.warning("❌ No se detectó ningún rostro. Prueba de nuevo.")
             st.stop()
 
-        # Procesar la imagen subida en OpenCV BGR
-        frame = cv2.imdecode(
-            np.frombuffer(img_file.getvalue(), dtype=np.uint8), 
-            cv2.IMREAD_COLOR
+        # Construir o cargar índice según el modo
+        construir_indice(modo=modo_faiss)
+        usuario, similitud = buscar_usuario_por_embedding(emb)
+
+    # --- Resultado ---
+    if usuario:
+        st.success(f"🎉 Usuario identificado: {usuario['nombre']}")
+        st.markdown(
+            f"""
+            - **Código:** `{usuario['codigo']}`  
+            - **Facultad:** {usuario['facultad']}  
+            - **Carrera:** {usuario['carrera']}  
+            - **Similitud:** `{similitud:.4f}`
+            """
         )
-
-        with st.spinner("Generando embedding y consultando el índice…"):
-            emb = crear_embedding(frame)
-
-            if emb is None:
-                st.warning("❌ No se detectó ningún rostro. Prueba de nuevo.")
-                if not st.button("Volver a intentar"):
-                    st.stop()
-                else:
-                    continue  # vuelve al while y solicita otra foto
-
-            # Construir o cargar índice según el modo
-            construir_indice(modo=modo_faiss)
-            usuario, similitud = buscar_usuario_por_embedding(emb)
-
-        # --- Resultado ---
-        if usuario:
-            st.success(f"🎉 Usuario identificado: {usuario['nombre']}")
-            st.markdown(
-                f"""
-                - **Código:** `{usuario['codigo']}`  
-                - **Facultad:** {usuario['facultad']}  
-                - **Carrera:** {usuario['carrera']}  
-                - **Similitud:** `{similitud:.4f}`
-                """
-            )
-        else:
-            st.error("❌ Usuario no identificado.")
-            st.info(f"Similitud máxima encontrada: {similitud:.4f}")
-
-        # ¿Repetir?
-        if st.button("Probar con otra foto"):
-            continue   # vuelve al while externo
-        break  # sale si no se pulsa el botón
-    1
+    else:
+        st.error("❌ Usuario no identificado.")
+        st.info(f"Similitud máxima encontrada: {similitud:.4f}")

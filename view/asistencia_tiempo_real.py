@@ -1,126 +1,197 @@
-# asistencia_tiempo_real.py
+
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
-import av, cv2, numpy as np, pandas as pd
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import av
+import cv2
+import numpy as np
+import pandas as pd
+import io
+import os
+import uuid
 from datetime import datetime
-import uuid, os, io   # noqa
 
 from app.embeddings_multiples import crear_embeddings_multiples
 from app.verificacion_faiss import construir_indice, buscar_usuario_por_embedding
+from app import asistencia_global
 
-# ---------- CONFIGURACIÓN GLOBAL ----------
-FRAME_STRIDE = 3          # procesa 1 de cada 3 frames
-SIM_COLOR = [(0.35, (0,0,255)),  # rojo: similitud < 0.35
-             (0.50, (0,255,255)),# ámbar: 0.35-0.49
-             (1.01,(0,255,0))]   # verde: ≥0.50
 
-# Guardaremos el índice FAISS y su modo en cache de Streamlit
-if "faiss_mode" not in st.session_state:
-    st.session_state.faiss_mode = None
-if "faiss_index_ready" not in st.session_state:
-    st.session_state.faiss_index_ready = False
-if "asistencia" not in st.session_state:
-    st.session_state.asistencia = {}          # dict {codigo: datos}
-if "webrtc_key" not in st.session_state:
-    st.session_state.webrtc_key = f"asist_{uuid.uuid4()}"
+# === CLASE TRANSFORMADOR EN TIEMPO REAL ===
+class Reconocedor(VideoTransformerBase):
+    def __init__(self):
+        self.ya_registrados = set()
 
-# ---------- CONSTRUCTOR DEL ÍNDICE SEGÚN MODO ----------
-def ensure_faiss(mode: str):
-    if (not st.session_state.faiss_index_ready) or (mode != st.session_state.faiss_mode):
-        construir_indice(modo=mode)
-        st.session_state.faiss_index_ready = True
-        st.session_state.faiss_mode = mode
-        st.toast(f"Índice FAISS ({mode}) listo", icon="✅")
-
-# ---------- PROCESADOR DE VÍDEO ----------
-class Reconocedor(VideoProcessorBase):
-    def __init__(self, mode: str):
-        super().__init__()
-        self.mode = mode
-        self.frame_idx = 0
-
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+    def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
-        self.frame_idx += 1
+        faces = crear_embeddings_multiples(img)
 
-        # Procesamos solo cada FRAME_STRIDE-ésimo frame
-        if self.frame_idx % FRAME_STRIDE != 0:
-            return frame
+        for face in faces:
+            emb = face.embedding
+            x1, y1, x2, y2 = face.bbox.astype(int)
 
-        caras = crear_embeddings_multiples(img)
-        for cara in caras:
-            emb = cara.embedding
-            x1, y1, x2, y2 = cara.bbox.astype(int)
+            usuario, similitud = buscar_usuario_por_embedding(emb)
 
-            usuario, sim = buscar_usuario_por_embedding(emb)
             if usuario:
-                # --- Registro en sesión (sin duplicados) ---
-                codigo = usuario["codigo"]
-                if codigo not in st.session_state.asistencia:
-                    st.session_state.asistencia[codigo] = {
-                        "Nombre": usuario["nombre"],
-                        "Código": codigo,
-                        "Facultad": usuario["facultad"],
-                        "Carrera": usuario["carrera"],
-                        "Similitud": round(sim, 4),
-                        "FechaHora": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
+                color = (0, 255, 0)  # Verde para identificados
+                texto = f"{usuario['nombre']}"
 
-                texto = f"{usuario['nombre']} ({sim:.2f})"
+                if usuario["codigo"] not in self.ya_registrados:
+                    self.ya_registrados.add(usuario["codigo"])
+
+                    ya_existe = any(u["Código"] == usuario["codigo"] for u in asistencia_global.asistencias_temp)
+                    if not ya_existe:
+                        asistencia_global.asistencias_temp.append({
+                            "Nombre": usuario["nombre"],
+                            "Código": usuario["codigo"],
+                            "Facultad": usuario["facultad"],
+                            "Carrera": usuario["carrera"],
+                            "Similitud": round(similitud, 4),
+                            "Fecha y hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                        st.session_state.asistencia_finalizada = True
+
             else:
+                color = (0, 0, 255)  # Rojo para no identificados
                 texto = "Desconocido"
-                sim = 0.0
-
-            # --- Color dinámico por similitud ---
-            for thr, col in SIM_COLOR:
-                if sim < thr:
-                    color = col
-                    break
 
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(img, texto, (x1, y1 - 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 1, cv2.LINE_AA)
+            cv2.putText(img, texto, (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# ---------- VISTA STREAMLIT ----------
+
+# === GUARDAR AUTOMÁTICAMENTE EN DISCO LOCAL ===
+def guardar_backup_excel(df):
+    ahora = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    carpeta = "asistencias"
+    try:
+        os.makedirs(carpeta, exist_ok=True)
+        ruta = os.path.join(carpeta, f"ASISTENCIA_{ahora}.xlsx")
+        df.to_excel(ruta, index=False, sheet_name="Asistencia")
+
+        # Leer contenido para descarga
+        with open(ruta, "rb") as f:
+            contenido = f.read()
+
+        return ruta, contenido  # <-- NUEVO
+
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo guardar en disco: {e}")
+        return None, None
+
+
+
+# === VISTA PRINCIPAL DE ASISTENCIA ===
 def vista_asistencia_tiempo_real():
-    st.title("📡 Asistencia en tiempo real")
+    st.title("📡Asistencia en Tiempo Real ")
 
-    # --- Modo de búsqueda Speed / Accuracy ----
-    mode_ui = st.radio(
-        "Modo de búsqueda:",
-        ("speed", "accuracy"), horizontal=True, index=0
-    )
-    ensure_faiss(mode_ui)
+    if "asistencia" not in st.session_state:
+        st.session_state.asistencia = []
+    if "asistencia_finalizada" not in st.session_state:
+        st.session_state.asistencia_finalizada = False
+    if "modo_reconocimiento" not in st.session_state:
+        st.session_state.modo_reconocimiento = "speed"
+    if "faiss_cargado" not in st.session_state:
+        st.session_state.faiss_cargado = False
 
-    # --- Lanza WebRTC ---
+    # === SELECTOR DE MODO DE RECONOCIMIENTO ===
+    st.markdown("### ⚙️ Configuración de Reconocimiento")
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        modo_anterior = st.session_state.modo_reconocimiento
+        modo_nuevo = st.selectbox(
+            "Selecciona el modo de reconocimiento:",
+            options=["speed", "accuracy"],
+            format_func=lambda x: "🚀 Velocidad (promedio de embeddings)" if x == "speed" 
+                                 else "🎯 Precisión (embeddings individuales)",
+            index=0 if st.session_state.modo_reconocimiento == "speed" else 1,
+            key="selector_modo"
+        )
+          # Si cambió el modo, actualizar y recargar índice
+        if modo_nuevo != modo_anterior:
+            st.session_state.modo_reconocimiento = modo_nuevo
+            st.session_state.faiss_cargado = False
+    
+    with col2:
+        if st.button("🔄 Recargar Índice"):
+            st.session_state.faiss_cargado = False    # Cargar o recargar índice según el modo seleccionado
+    if not st.session_state.faiss_cargado:
+        with st.spinner(f"🔄 Cargando índice en modo {st.session_state.modo_reconocimiento}..."):
+            try:
+                construir_indice(modo=st.session_state.modo_reconocimiento)
+                st.session_state.faiss_cargado = True
+                
+                modo_texto = "🚀 Velocidad (embeddings promedio)" if st.session_state.modo_reconocimiento == "speed" else "🎯 Precisión (embeddings individuales)"
+                st.success(f"✅ Índice FAISS cargado en modo: {modo_texto}")
+                
+                # Mostrar información adicional sobre el modo y estadísticas
+                from app.verificacion_faiss import index, usuarios_indexados
+                num_vectores = index.ntotal
+                num_usuarios = len(set(u.get('codigo', u.get('idUser', 'unknown')) for u in usuarios_indexados))
+                
+                if st.session_state.modo_reconocimiento == "speed":
+                    st.info(f"ℹ️ Modo Velocidad: {num_vectores} embeddings promedio de {num_usuarios} usuarios (más rápido)")
+                else:
+                    st.info(f"ℹ️ Modo Precisión: {num_vectores} embeddings individuales de {num_usuarios} usuarios (más preciso)")
+                    
+            except Exception as e:
+                st.error(f"❌ Error al cargar índice: {e}")
+                st.session_state.faiss_cargado = False
+
+    st.markdown("---")
+
+    # === INDICADOR DEL MODO ACTIVO ===
+    if st.session_state.faiss_cargado:
+        if st.session_state.modo_reconocimiento == "speed":
+            st.info("🚀 **MODO ACTIVO: VELOCIDAD** - Usando embeddings promedio para reconocimiento rápido")
+        else:
+            st.info("🎯 **MODO ACTIVO: PRECISIÓN** - Usando embeddings individuales para mayor precisión")
+
+    # === CÁMARA EN TIEMPO REAL ===
+    st.markdown("### 📹 Reconocimiento Facial en Tiempo Real")
+    
+    # Generar key único para evitar errores
+    if "webrtc_key" not in st.session_state:
+        st.session_state.webrtc_key = f"asistencia_{uuid.uuid4()}"
+
     webrtc_streamer(
         key=st.session_state.webrtc_key,
-        video_processor_factory=lambda: Reconocedor(mode_ui),
-        async_processing=True,
+        video_transformer_factory=Reconocedor,
         media_stream_constraints={"video": {"width": 640, "height": 480}, "audio": False},
+        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+        async_transform=True
     )
 
-    # --- Tabla de asistencias ----
-    if st.session_state.asistencia:
-        st.markdown("### 🧾 Asistencias registradas")
-        df = pd.DataFrame.from_dict(st.session_state.asistencia, orient="index")
-        st.dataframe(df, use_container_width=True)
+    # Solo actualizar si hay datos nuevos
+    if asistencia_global.asistencias_temp:
+        st.session_state.asistencia = asistencia_global.asistencias_temp.copy()
+        st.session_state.asistencia_finalizada = True
+        asistencia_global.asistencias_temp.clear()  # Limpia luego de usar    # Mostrar asistencia si ya se registró
+    if st.session_state.asistencia_finalizada and st.session_state.asistencia:
+        st.markdown("---")
+        st.markdown("### 🧾 Asistencias registradas:")
+        df = pd.DataFrame(st.session_state.asistencia)
 
-        # Botón para descargar una sola vez
-        buffer = io.BytesIO()
-        if st.download_button(
-            "📥 Descargar Excel",
-            data=(lambda _df=df, _io=buffer: (
-                _df.to_excel(_io, index=False, sheet_name="Asistencia"), _io.seek(0), _io.read()
-            ))()[2],
-            file_name=f"ASISTENCIA_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ):
-            st.toast("Excel generado ✅", icon="📄")
+        st.write("✅ Asistencias detectadas:", len(st.session_state.asistencia))
+        st.dataframe(df)
 
-    # --- Limpieza ---
-    if st.button("🧹 Reiniciar lista"):
-        st.session_state.asistencia.clear()
-        st.rerun()
+        # Guardar localmente
+        # Guardar una sola vez y obtener el contenido
+        ruta, contenido = guardar_backup_excel(df)
+        if ruta:
+            st.success(f"📁 Backup guardado en: `{ruta}`")
+
+            # Botón de descarga usando el mismo archivo
+            st.download_button(
+                "📥 Descargar Excel",
+                data=contenido,
+                file_name=os.path.basename(ruta),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+        # === 🧹 LIMPIEZA OPCIONAL ===
+        if st.button("🧹 Limpiar y reiniciar asistencia"):
+            st.session_state.asistencia = []
+            st.session_state.asistencia_finalizada = False
+            st.rerun()
