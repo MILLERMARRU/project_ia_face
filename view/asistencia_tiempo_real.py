@@ -102,7 +102,12 @@ def vista_asistencia_tiempo_real():
         key=st.session_state.webrtc_key,
         video_transformer_factory=Reconocedor,
         media_stream_constraints={"video": {"width": 640, "height": 480}, "audio": False},
-
+        rtc_configuration={
+            "iceServers": [
+                {"urls": "stun:stun.l.google.com:19302"},
+                {"urls": "turn:turn.example.com:3478", "username": "user", "credential": "pass"}
+            ]
+        },
         async_transform=True
     )
 
@@ -116,10 +121,7 @@ def vista_asistencia_tiempo_real():
     if  st.session_state.asistencia_finalizada and st.session_state.asistencia:
         st.markdown("---")
         st.markdown("### 🧾 Asistencias registradas:")
-        df = pd.DataFrame(st.session_state.asistencia)
-
-        st.write("✅ Asistencias detectadas:", st.session_state.get("asistencia", []))
-        
+        df = pd.DataFrame(st.session_state.asistencia)     
 
         st.dataframe(df)
 
